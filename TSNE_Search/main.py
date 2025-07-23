@@ -265,14 +265,14 @@ def get_graph_structure(G, graph_id):
 # Generate graphs with node counts of 8, 10, 12, and 14, for a total of 20000 graphs
 # Define how many graphs per node count
 node_counts = [8, 10, 12, 14]
-graphs_per_count = 10000  # Use a lower value for testing
+graphs_per_count = 200  # Use a lower value for testing
 graphs = []
 
 for node_count in node_counts:
     for _ in tqdm(range(graphs_per_count), desc=f"n={node_count}"):
         graphs.append(generate_unique_connected_graph(node=node_count))
 
-with open(f'{callback}_{partition}_graph_dataset.pkl', "wb") as f:
+with open(f'{callback}_{partition}_graphs.pkl', "wb") as f:
     pickle.dump(graphs, f)
 
 combined_data = []
