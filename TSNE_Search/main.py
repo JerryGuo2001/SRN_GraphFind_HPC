@@ -272,7 +272,7 @@ for node_count in node_counts:
     for _ in tqdm(range(graphs_per_count), desc=f"n={node_count}"):
         graphs.append(generate_unique_connected_graph(node=node_count))
 
-with open("graphs.pkl", "wb") as f:
+with open(f'{callback}_{partition}_graph_dataset.pkl', "wb") as f:
     pickle.dump(graphs, f)
 
 combined_data = []
@@ -292,10 +292,10 @@ for i, G in enumerate(tqdm(graphs, desc="Processing graphs")):
 # create DataFrame
 df_combined = pd.DataFrame(combined_data)
 
-with open("graph_dataset.pkl", "wb") as f:
+with open(f'{callback}_{partition}_graph_dataset.pkl', "wb") as f:
     pickle.dump(df_combined, f)
 
-with open("graph_dataset.pkl", "rb") as f:
+with open(f'{callback}_{partition}_graph_dataset.pkl', "rb") as f:
     df_combined = pickle.load(f)
 
 df_metrics = df_combined.drop(columns=["graph_structure", "graph_id", "node_count"], errors="ignore")
