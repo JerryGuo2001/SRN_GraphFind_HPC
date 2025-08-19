@@ -265,7 +265,7 @@ def get_graph_structure(G, graph_id):
 # Generate graphs with node counts of 8, 10, 12, and 14, for a total of 20000 graphs
 # Define how many graphs per node count
 node_counts = [8, 10, 12, 14]
-graphs_per_count = 40000  # Use a lower value for testing
+graphs_per_count = 40  # Use a lower value for testing
 graphs = []
 
 for node_count in node_counts:
