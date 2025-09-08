@@ -208,12 +208,11 @@ def compute_graph_metrics_with_rewiring(G, rewiring_reps=100):
             # Rewiring failed, skip this iteration
             continue
 
-        if assortativities:
-            clean_r = [r for r in assortativities if np.isfinite(r)]
-        if clean_r:
-            metrics["Degree Correlation Elasticity (|rmax - rmin|)"] = max(clean_r) - min(clean_r)
-        else:
-            metrics["Degree Correlation Elasticity (|rmax - rmin|)"] = 0
+    clean_r = [r for r in assortativities if np.isfinite(r)]
+    if clean_r:
+        metrics["Degree Correlation Elasticity (|rmax - rmin|)"] = max(clean_r) - min(clean_r)
+    else:
+        metrics["Degree Correlation Elasticity (|rmax - rmin|)"] = 0
 
     # Metric 9–10: Rich-club mean and variance (normalized)
     if successful_reps > 0:
