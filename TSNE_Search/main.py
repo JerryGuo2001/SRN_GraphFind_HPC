@@ -240,6 +240,140 @@ def compute_graph_metrics_with_rewiring(G, rewiring_reps=100):
 
     return metrics
 
+def compute_graph_metrics_CL(G, reps=200, percentiles=(5, 95), rng_seed=None):
+    """
+    Compute rewiring-based metrics (8–12) using a Chung–Lu (expected-degree) null model
+    instead of degree-preserving edge rewiring.
+
+    Metrics returned (same keys as your original function):
+      - "Degree Correlation Elasticity (|rmax - rmin|)"
+      - "Rich Club Metric (⟨rc⟩)"           # mean of normalized rich-club over k
+      - "Rich Club Variance"                 # variance of normalized rich-club over k
+      - "s-metric/smax"
+      - "s-metric Elasticity (|smax - smin|)"
+
+    Args
+    ----
+    G : nx.Graph
+        Simple undirected graph (self-loops will be ignored by CL sampling).
+    reps : int
+        Number of CL samples for r/s distribution-based metrics.
+    percentiles : (low, high)
+        Percentiles used to compute a robust elasticity for r (e.g., (5,95)).
+        If you prefer strict max-min, set to (0,100); but percentiles are more robust.
+    rng_seed : int or None
+        Seed for reproducibility.
+
+    Notes
+    -----
+    - Rich-club normalization uses CL *analytical expectation*:
+        p_ij = min(1, d_i*d_j / (2m))
+      For each k with |N_k|>=2, we compute:
+        phi_real(k) / phi_null_CL(k),
+      then report mean and variance across valid k.
+    - r 的 “弹性” 与 s 的 “弹性/最大值” 来自于对 CL 分布的采样。
+    """
+    # ---- helpers -------------------------------------------------------------
+    def s_metric(H):
+        deg = dict(H.degree())
+        return sum(deg[u]*deg[v] for u, v in H.edges())
+
+    def cl_expected_phi_for_k(G, k, deg, m):
+        """Compute CL analytical expected rich-club coefficient for threshold k."""
+        if m == 0:
+            return 0.0, 0  # no edges
+        # Rich set Nk (strictly greater than k)
+        Nk = [v for v, dv in deg.items() if dv > k]
+        r = len(Nk)
+        if r < 2:
+            return None, r  # undefined (skip)
+        # Expected number of edges among Nk under CL:
+        # p_ij = min(1, d_i d_j / (2m))
+        E_exp = 0.0
+        for i in range(r):
+            vi = Nk[i]
+            di = deg[vi]
+            for j in range(i+1, r):
+                vj = Nk[j]
+                dj = deg[vj]
+                pij = (di * dj) / (2.0*m)
+                if pij > 1.0:
+                    pij = 1.0  # cap
+                E_exp += pij
+        denom = r*(r-1)/2.0
+        phi_null = (E_exp / denom) if denom > 0 else 0.0
+        return phi_null, r
+
+    def cl_sample_graph(G, rng):
+        """Sample a simple graph from expected-degree (Chung–Lu) null model."""
+        deg = [d for _, d in G.degree()]
+        # selfloops=False -> simple (without loops); multiedges are not allowed by this constructor
+        H = nx.expected_degree_graph(deg, selfloops=False, seed=rng)
+        # The expected_degree_graph labels nodes as integers by default (0..n-1).
+        # That is fine because we only need r and s that depend on degree/edges, not node labels.
+        return H
+
+    # ---- precompute real quantities -----------------------------------------
+    metrics = {}
+    m = G.number_of_edges()
+    n = G.number_of_nodes()
+    deg_map = dict(G.degree())
+    s_current = s_metric(G)
+
+    # Rich-club of the real graph (unnormalized)
+    rich_club_real = nx.rich_club_coefficient(G, normalized=False)
+
+    # ---- 1) Degree assortativity elasticity under CL sampling ---------------
+    rng = np.random.default_rng(rng_seed)
+    r_samples = []
+    s_samples = []
+
+    # If graph is trivial, sampling may produce degenerate distributions
+    for _ in range(max(reps, 1)):
+        H = cl_sample_graph(G, rng)
+        r_val = nx.degree_assortativity_coefficient(H)
+        if np.isfinite(r_val):
+            r_samples.append(r_val)
+        s_samples.append(s_metric(H))
+
+    if len(r_samples) >= 2:
+        lo, hi = np.percentile(r_samples, percentiles)
+        r_elasticity = hi - lo
+    else:
+        r_elasticity = 0.0
+    metrics["Degree Correlation Elasticity (|rmax - rmin|)"] = float(r_elasticity)
+
+    # ---- 2) Rich-club normalized by CL analytical expectation ---------------
+    # For each k where |N_k|>=2 and phi_null>0, compute ratio = phi_real/phi_null_CL
+    ratios = []
+    for k, phi_real in rich_club_real.items():
+        phi_null, rsize = cl_expected_phi_for_k(G, k, deg_map, m)
+        if phi_null is None or rsize < 2 or phi_null <= 0:
+            continue
+        ratios.append(phi_real / phi_null)
+
+    if ratios:
+        metrics["Rich Club Metric (⟨rc⟩)"] = float(np.mean(ratios))
+        metrics["Rich Club Variance"] = float(np.var(ratios))
+    else:
+        metrics["Rich Club Metric (⟨rc⟩)"] = 0.0
+        metrics["Rich Club Variance"] = 0.0
+
+    # ---- 3) s-metric ratio and elasticity from CL samples -------------------
+    if s_samples:
+        s_max = max(s_samples)
+        s_min = min(s_samples)
+        s_ratio = (s_current / s_max) if s_max > 0 else 0.0
+        s_elasticity = (abs(s_max - s_min) / s_max) if s_max > 0 else 0.0
+        metrics["s-metric/smax"] = float(s_ratio)
+        metrics["s-metric Elasticity (|smax - smin|)"] = float(s_elasticity)
+    else:
+        metrics["s-metric/smax"] = 0.0
+        metrics["s-metric Elasticity (|smax - smin|)"] = 0.0
+
+    return metrics
+
+
 unique_graph_hashes = set()
 
 def generate_unique_connected_graph(node=14):
@@ -278,7 +412,7 @@ combined_data = []
 
 for i, G in enumerate(tqdm(graphs, desc="Processing graphs")):
     base_metrics = compute_graph_metrics(G)
-    rewire_metrics = compute_graph_metrics_with_rewiring(G, rewiring_reps=30)
+    rewire_metrics = compute_graph_metrics_CL(G, rng_seed=42)
     structure_info = get_graph_structure(G, i)
 
     full_data = {
